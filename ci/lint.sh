@@ -4,8 +4,11 @@ echo "inside $0"
 
 source activate pandas
 
-echo flake8 pandas/core --statistics
-flake8 pandas/core --statistics
+for path in 'core'
+do
+    echo "linting -> pandas/$path"
+    flake8 pandas/$path --filename '*.py' --statistics -q
+done
 
 RET="$?"
 
