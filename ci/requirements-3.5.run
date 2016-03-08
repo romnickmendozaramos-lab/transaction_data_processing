@@ -5,7 +5,6 @@ openpyxl
 xlsxwriter
 xlrd
 xlwt
-patsy
 scipy
 numexpr
 pytables
