@@ -1966,7 +1966,26 @@ default 'raise'
     Freq: D, dtype: int32
     """
     day_of_week = _field_accessor("day_of_week", "dow", _dayofweek_doc)
-    weekday = day_of_week
+
+    @property
+    def weekday(self):
+        """
+        The day of the week with Monday=0, Sunday=6.
+
+        .. deprecated:: 3.1.0
+            Use :attr:`DatetimeIndex.day_of_week` instead.
+        """
+        # GH#12816
+        from pandas.errors import Pandas4Warning
+
+        warnings.warn(
+            f"{type(self).__name__}.weekday is deprecated and will be removed "
+            "in a future version. Use DatetimeIndex.day_of_week or "
+            "Series.dt.day_of_week instead.",
+            Pandas4Warning,
+            stacklevel=find_stack_level(),
+        )
+        return self.day_of_week
 
     @property
     def dayofweek(self):
