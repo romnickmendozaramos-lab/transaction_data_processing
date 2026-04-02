@@ -3903,6 +3903,13 @@ class Index(IndexOpsMixin, PandasObject):
 
             indexer = self._engine.get_indexer(tgt_values)  # pyright: ignore[reportArgumentType]
 
+        if method is not None and target._can_hold_na and not target._is_multi:
+            # GH#32572 NaT/NaN in the target should not be matched
+            #  by pad/backfill/nearest
+            na_mask = target._isnan
+            if na_mask.any():
+                indexer[na_mask] = -1
+
         return ensure_platform_int(indexer)
 
     @final
