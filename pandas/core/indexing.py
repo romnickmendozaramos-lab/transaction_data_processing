@@ -90,6 +90,7 @@ if TYPE_CHECKING:
         ArrayLike,
         Axis,
         AxisInt,
+        DtypeObj,
         T,
         npt,
     )
@@ -937,46 +938,71 @@ class _LocationIndexer(NDFrameIndexerBase):
         else:
             maybe_callable = com.apply_if_callable(key, self.obj)
             key = self._raise_callable_usage(key, maybe_callable)
-        orig_obj = self.obj[:].iloc[:0].copy()  # copy to avoid extra refs
+        # Capture the row count before _get_setitem_indexer which may add
+        # columns (but not rows).
+        orig_nrows = self.obj.shape[0]
         indexer = self._get_setitem_indexer(key)  # may alter self.obj
         self._has_valid_setitem_indexer(key)
+
+        # Capture dtype info cheaply between potential column expansion
+        # (above) and potential row expansion (below).  This replaces the
+        # much more expensive ``self.obj[:].iloc[:0].copy()`` that had to
+        # slice and copy every block.
+        if self.obj.ndim == 1:
+            orig_dtype_info = self.obj.dtype
+            orig_columns = None
+        else:
+            orig_dtype_info = self.obj._mgr.get_dtypes()
+            orig_columns = self.obj.columns
 
         iloc: _iLocIndexer = (
             cast("_iLocIndexer", self) if self.name == "iloc" else self.obj.iloc
         )
         iloc._setitem_with_indexer(indexer, value, self.name)
 
-        self._post_expansion_casting(orig_obj)
+        if self.obj.shape[0] != orig_nrows:
+            self._post_expansion_casting(orig_dtype_info, orig_columns)
 
-    def _post_expansion_casting(self, orig_obj) -> None:
-        if orig_obj.shape[0] != self.obj.shape[0]:
-            # setitem-with-expansion added new rows.  Try to retain
-            #  original dtypes
-            if orig_obj.ndim == 1:
-                if orig_obj.dtype != self.obj.dtype:
-                    new_arr = infer_and_maybe_downcast(orig_obj.array, self.obj._values)
-                    new_ser = self.obj._constructor(
-                        new_arr, index=self.obj.index, name=self.obj.name
-                    )
-                    self.obj._mgr = new_ser._mgr
-            elif orig_obj.shape[1] == self.obj.shape[1]:
-                # We added rows but not columns
-                changed_dtypes = (
-                    self.obj._mgr.get_dtypes() != orig_obj._mgr.get_dtypes()
+    def _post_expansion_casting(
+        self,
+        orig_dtype_info: DtypeObj | npt.NDArray[np.object_],
+        orig_columns: Index | None,
+    ) -> None:
+        # setitem-with-expansion added new rows.  Try to retain
+        #  original dtypes
+        if self.obj.ndim == 1:
+            assert not isinstance(orig_dtype_info, np.ndarray)
+            if orig_dtype_info != self.obj.dtype:
+                orig_arr = pd_array([], dtype=orig_dtype_info)
+                new_arr = infer_and_maybe_downcast(orig_arr, self.obj._values)
+                new_ser = self.obj._constructor(
+                    new_arr, index=self.obj.index, name=self.obj.name
                 )
-                for i in np.flatnonzero(changed_dtypes):
+                self.obj._mgr = new_ser._mgr
+        else:
+            assert isinstance(orig_dtype_info, np.ndarray)
+            assert orig_columns is not None
+            orig_dtypes = orig_dtype_info
+            new_dtypes = self.obj._mgr.get_dtypes()
+            if len(orig_dtypes) == len(new_dtypes):
+                # We added rows but not columns
+                changed_dtypes = new_dtypes != orig_dtypes
+                for idx in np.flatnonzero(changed_dtypes):
+                    orig_arr = pd_array([], dtype=orig_dtypes[idx])
                     new_arr = infer_and_maybe_downcast(
-                        orig_obj.iloc[:, i].array, self.obj.iloc[:, i]._values
+                        orig_arr, self.obj.iloc[:, idx]._values
                     )
-                    self.obj.isetitem(i, new_arr)
+                    self.obj.isetitem(idx, new_arr)
 
-            elif orig_obj.columns.is_unique and self.obj.columns.is_unique:
-                for col in orig_obj.columns:
+            elif orig_columns.is_unique and self.obj.columns.is_unique:
+                # Added rows and columns; iterate by label since positional
+                # correspondence between orig and new is not guaranteed.
+                for col, orig_dtype in zip(orig_columns, orig_dtypes, strict=True):
                     new_dtype = self.obj[col].dtype
-                    orig_dtype = orig_obj[col].dtype
                     if new_dtype != orig_dtype:
+                        orig_arr = pd_array([], dtype=orig_dtype)
                         new_arr = infer_and_maybe_downcast(
-                            orig_obj[col].array, self.obj[col]._values
+                            orig_arr, self.obj[col]._values
                         )
                         self.obj[col] = new_arr
             else:
