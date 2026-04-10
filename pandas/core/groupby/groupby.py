@@ -3423,6 +3423,8 @@ class GroupBy(BaseGroupBy[NDFrameT]):
             result = self.obj._constructor_expanddim(
                 res_values, index=self._grouper.result_index, columns=agg_names
             )
+            if not self.as_index:
+                result = result.reset_index()
             return result
 
         result = self._apply_to_column_groupbys(lambda sgb: sgb.ohlc())
