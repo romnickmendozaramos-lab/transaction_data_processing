@@ -917,16 +917,18 @@ class DatetimeTimedeltaMixin(DatetimeIndexOpsMixin, ABC):
 
     def _with_freq(self, freq):
         # GH#29843
-        if freq is None or (len(self) == 0 and isinstance(freq, BaseOffset)):
-            # None is always valid. For offsets on empty index the array's
-            # _with_freq below performs the m-dtype Tick validation.
+        if freq is None:
             pass
-        else:
-            # As an internal method, we can ensure this assertion always holds
-            assert freq == "infer"
+        elif isinstance(freq, BaseOffset):
+            if self.dtype.kind == "m" and not isinstance(freq, (Tick, Day)):
+                raise TypeError("TimedeltaArray/Index freq must be a Tick")
+        elif freq == "infer":
             freq = to_offset(self.inferred_freq)
+        else:
+            raise ValueError(f"Invalid frequency: {freq!r}")
 
-        arr = self._data._with_freq(freq)
+        arr = self._data.view()
+        arr._freq = freq
         return type(self)._simple_new(arr, name=self._name)
 
     @property
@@ -1218,12 +1220,13 @@ class DatetimeTimedeltaMixin(DatetimeIndexOpsMixin, ABC):
             return self._range_union(other, sort=sort)
 
         if self._can_fast_union(other):
-            result = self._fast_union(other, sort=sort)
             # in the case with sort=None, the _can_fast_union check ensures
             #  that result.freq == self.freq
-            return result
+            return self._fast_union(other, sort=sort)
         else:
-            return super()._union(other, sort)._with_freq("infer")  # type: ignore[union-attr]
+            # super()._union can return an ArrayLike; wrap into an Index first
+            result = self._wrap_setop_result(other, super()._union(other, sort))
+            return result._with_freq("infer")  # type: ignore[attr-defined]
 
     # --------------------------------------------------------------------
     # Join Methods
