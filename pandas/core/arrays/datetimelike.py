@@ -45,7 +45,6 @@ from pandas._libs.tslibs import (
     ints_to_pydatetime,
     ints_to_pytimedelta,
     periods_per_day,
-    to_offset,
 )
 from pandas._libs.tslibs.fields import (
     RoundTo,
@@ -205,7 +204,11 @@ class DatetimeLikeArrayMixin(OpsMixin, NDArrayBackedExtensionArray):
     _is_recognized_dtype: Callable[[DtypeObj], bool]
     _recognized_scalars: tuple[type, ...]
     _ndarray: np.ndarray
-    freq: BaseOffset | None
+
+    @property
+    def freq(self) -> BaseOffset | None:
+        # subclasses provide an implementation
+        raise AbstractMethodError(self)
 
     @cache_readonly
     def _can_hold_na(self) -> bool:
@@ -404,21 +407,11 @@ class DatetimeLikeArrayMixin(OpsMixin, NDArrayBackedExtensionArray):
         # I don't know if mypy can do that, possibly with Generics.
         # https://mypy.readthedocs.io/en/latest/generics.html
 
-        no_op = check_setitem_lengths(key, value, self)
+        check_setitem_lengths(key, value, self)
 
         # Calling super() before the no_op short-circuit means that we raise
         #  on invalid 'value' even if this is a no-op, e.g. wrong-dtype empty array.
         super().__setitem__(key, value)
-
-        if no_op:
-            return
-
-        self._maybe_clear_freq()
-
-    def _maybe_clear_freq(self) -> None:
-        # inplace operations like __setitem__ may invalidate the freq of
-        # DatetimeArray and TimedeltaArray
-        pass
 
     def astype(self, dtype, copy: bool = True):
         # Some notes on cases we don't have to handle here in the base class:
@@ -1781,6 +1774,8 @@ class TimelikeOps(DatetimeLikeArrayMixin):
     Common ops for TimedeltaIndex/DatetimeIndex, but not PeriodIndex.
     """
 
+    _freq: BaseOffset | None = None
+
     @classmethod
     def _validate_dtype(cls, values, dtype):
         raise AbstractMethodError(cls)
@@ -1832,19 +1827,6 @@ class TimelikeOps(DatetimeLikeArrayMixin):
         <Hour>
         """
         return self._freq
-
-    @freq.setter
-    def freq(self, value) -> None:
-        if value is not None:
-            value = to_offset(value)
-            self._validate_frequency(self, value)
-            if self.dtype.kind == "m" and not isinstance(value, (Tick, Day)):
-                raise TypeError("TimedeltaArray/Index freq must be a Tick")
-
-            if self.ndim > 1:
-                raise ValueError("Cannot set freq with ndim > 1")
-
-        self._freq = value
 
     @final
     @classmethod
@@ -2369,12 +2351,6 @@ class TimelikeOps(DatetimeLikeArrayMixin):
         # GH#34479 the nanops call will raise a TypeError for non-td64 dtype
 
         return nanops.nanall(self._ndarray, axis=axis, skipna=skipna, mask=self.isna())
-
-    # --------------------------------------------------------------
-    # Frequency Methods
-
-    def _maybe_clear_freq(self) -> None:
-        self._freq = None
 
     # --------------------------------------------------------------
     # ExtensionArray Interface
