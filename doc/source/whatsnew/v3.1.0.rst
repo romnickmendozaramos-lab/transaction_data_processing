@@ -283,6 +283,7 @@ Indexing
 - Bug in :meth:`DataFrame.loc` raising ``ValueError`` when setting a row with a list-like value on a single-column :class:`DataFrame` with :class:`ExtensionArray` dtype (:issue:`44103`)
 - Bug in :meth:`DataFrame.loc` with a :class:`MultiIndex` returning wrong results instead of raising ``KeyError`` when passing string keys for numeric index levels (:issue:`60104`)
 - Bug in :meth:`DataFrame.mask` with ``inplace=True`` where incorrect values were produced when ``other`` was a :class:`Series` with :class:`ExtensionArray` values (:issue:`64635`)
+- Bug in :meth:`DataFrame.rename` and :meth:`Series.rename` not preserving nullable extension dtype (e.g. ``Int64``, ``Float64``) when relabeling index or column labels (:issue:`65315`)
 - Bug in :meth:`DataFrame.where` and :meth:`DataFrame.mask` raising ``TypeError`` when ``cond`` is a :class:`Series` and ``axis=1`` (:issue:`58190`)
 - Bug in :meth:`DataFrame.xs` where ``drop_level=False`` was ignored for fully specified :class:`MultiIndex` keys when ``level`` was not explicitly provided (:issue:`6507`)
 - Bug in :meth:`Index.get_level_values` mishandling boolean, NA-like (``np.nan``, ``pd.NA``, ``pd.NaT``) and integer index names (:issue:`62169`)
